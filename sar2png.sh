@@ -23,23 +23,25 @@ for dback in 1 0; do
 
 done # for dback
 
+find ${tempdir}/[dnqru]_????????.txt -mtime +35 -delete
+
 gnudatapre="${tempdir}/gnudata"
 gnuplot="${tempdir}/gnuplot.txt"
 gnutemp="${tempdir}/gnutemp.txt"
 
 rm -f ${gnudatapre}* ${gnuplot} ${gnutemp}
 
-for hourbackmax in 3 24 168; do
+for hourbackmax in 1 24 672; do
 
   case ${hourbackmax} in
-      3 ) secover=1800;  backsuf='3-hour'; xtic='%H:%M';;
+      1 ) secover=600;   backsuf='1-hour'; xtic='%H:%M';;
      24 ) secover=14400; backsuf='1-day';  xtic='%dT%H';;
-    168 ) secover=86400; backsuf='7-day';  xtic='%dT%H';;
+    672 ) secover=86400; backsuf='4-week'; xtic='%m-%d';;
   esac
 
   nows=$(date +%s)
   xmax=$((nows / secover * secover + secover))
-  xmin=$((xmax - hourbackmax * 3600))
+  xmin=$((xmax - hourbackmax * 3600 - secover))
 
   xmax="$(date -d "@${xmax}" +'%Y-%m-%dT%H:%M')"
   xmin="$(date -d "@${xmin}" +'%Y-%m-%dT%H:%M')"
@@ -119,11 +121,12 @@ EOF
 
         tac ${f} \
           | awk '$1 ~ /[0-9:]{8}/' \
+          | awk '$1 !~ /00:00/' \
           | awk '$3 !~ /[A-Za-z]/' \
           | awk "{print \$1,\$${ep}/${ef}}" \
-          | sed -e "s/^00:00/${ymdp1}T00:00/" \
           | sed -e "s/^\([0-9:]\{5\}\)/${ymdp0}T\1/" \
           >> ${gnudata}
+          #| sed -e "s/^00:00/${ymdp1}T00:00/" \
 
       done # for f
 
@@ -174,9 +177,9 @@ EOF2
 
   done # for e
 
-  convert -append ${tempdir}/sar_${backsuf}_*.png ${resultdir}/sar_${backsuf}.png
+  convert -append ${tempdir}/sar_${backsuf}_*.png ${tempdir}/sar_${backsuf}.png
 
 done # for hourbackmax
 
-convert +append ${resultdir}/sar_{3-hour,1-day,7-day}.png ${resultdir}/index.png
+convert +append ${tempdir}/sar_{1-hour,1-day,4-week}.png ${resultdir}/stat.png
 
