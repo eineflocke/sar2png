@@ -1,45 +1,62 @@
 #!/bin/bash -u
 
-image_w=500
+image_w=450
 image_h=150
+
 servername="$(hostname) "
+
 sardir='/var/log/sysstat'
 nw_iface='ens3'
+
+#xspecified='2021-10-09T10:00:00'
+xspecified="$(date +'%Y-%m-%dT%H:%M:%S')"
+
 resultdir='/var/www/html/stat'
 tempdir="${resultdir}/sar"
 
 mkdir -p ${resultdir} ${tempdir}
 
-for dback in 1 0; do
+for dback in $(seq 0 1); do
 
   ymd="$(date -d "${dback} days ago" +%Y%m%d)"
   sar="${sardir}/sa${ymd}"
+
+  if [ ! -f ${sar} ] && [ -f ${sar}.bz2 ]; then
+    bunzip2 ${sar}.bz2
+  fi
 
   sar -f ${sar} -u > ${tempdir}/u_${ymd}.txt
   sar -f ${sar} -q > ${tempdir}/q_${ymd}.txt
   sar -f ${sar} -d > ${tempdir}/d_${ymd}.txt
   sar -f ${sar} -r > ${tempdir}/r_${ymd}.txt
+  sar -f ${sar} -S > ${tempdir}/S_${ymd}.txt
   sar -f ${sar} -n DEV --iface=${nw_iface} > ${tempdir}/n_${ymd}.txt
 
 done # for dback
 
-find ${tempdir}/[dnqru]_????????.txt -mtime +35 -delete
+find ${tempdir}/[dnqrSu]_20??????.txt -mtime +35 -delete
 
-gnudatapre="${tempdir}/gnudata"
-gnuplot="${tempdir}/gnuplot.txt"
-gnutemp="${tempdir}/gnutemp.txt"
+gnupre="${tempdir}/gnu"
 
-rm -f ${gnudatapre}* ${gnuplot} ${gnutemp}
+gnudatapre="${gnupre}data"
+gnucmd="${gnupre}cmd.txt"
+gnutemp="${gnupre}temp.txt"
+
+rm -f ${gnupre}*
 
 for hourbackmax in 1 24 672; do
 
   case ${hourbackmax} in
       1 ) secover=600;   backsuf='1-hour'; xtic='%H:%M';;
+      3 ) secover=1800;  backsuf='3-hour'; xtic='%H:%M';;
+      6 ) secover=3600;  backsuf='6-hour'; xtic='%H:%M';;
      24 ) secover=14400; backsuf='1-day';  xtic='%dT%H';;
+    168 ) secover=86400; backsuf='7-day';  xtic='%m-%d';;
     672 ) secover=86400; backsuf='4-week'; xtic='%m-%d';;
+    840 ) secover=86400; backsuf='5-week'; xtic='%m-%d';;
   esac
 
-  nows=$(date +%s)
+  nows=$(date -d "${xspecified}" +%s)
   xmax=$((nows / secover * secover + secover))
   xmin=$((xmax - hourbackmax * 3600 - secover))
 
@@ -50,50 +67,58 @@ for hourbackmax in 1 24 672; do
 
   linetype=1
 
-  for e in u q d r n; do
+  for e in u q d r n S; do
 
     case ${e} in
 
-      'u' ) et='cpu'; eu='[%]'; ey='100';
-            eps=(3 5); efs=(1 1); ess=('user' 'sys');;
+      # 'sar letter' )
+      #   single element per letter:
+      #     et='chart title'; eu='unit displayed'; ey='y-axis maximum softlimit (blank for auto)'; eh='y-axis maximum hardlimit (blank for auto)';
+      #   can be multiple elements per letter:
+      #     eps=('element col number'); efs=(division factor); ess=('elemnt name displayed');;
 
-      'q' ) et='loadavg'; eu='[]'; ey='';
-            eps=(4 6); efs=(1 1); ess=('1min' '15min');;
+      'u' ) et='cpu'; eu='[%]'; ey='100'; eh='';
+            eps=('($3+$5)' '$5'); efs=(1 1); ess=('user' 'sys');;
 
-      'd' ) et='disk'; eu='[MiB/s]'; ey='';
-            eps=(4 5); efs=(1024 1024); ess=('read' 'write');;
+      'q' ) et='loadavg'; eu='[]'; ey=''; eh='';
+            eps=('$4' '$6'); efs=(1 1); ess=('1min' '15min');;
 
-      'r' ) et='mem'; eu='[MiB]'; ey='1024';
-            eps=(4); efs=(1024); ess=('used');;
+      'd' ) et='disk'; eu='[MiB/s]'; ey=''; eh='';
+            eps=('$4' '$5'); efs=(1024 1024); ess=('read' 'write');;
 
-      'n' ) et='nw'; eu='[KiB/s]'; ey='';
-            eps=(5 6); efs=(1 1); ess=('receive' 'transfer');;
+      'r' ) et='mem'; eu='[MiB]'; ey='1024'; eh='';
+            eps=('$4'); efs=(1024); ess=('used');;
+
+      'S' ) et='memswap'; eu='[MiB]'; ey='5000'; eh='';
+            eps=('($2+$3)' '$3'); efs=(1024 1024); ess=('free' 'used');;
+
+      'n' ) et='nw'; eu='[KiB/s]'; ey=''; eh='';
+            eps=('$5' '$6'); efs=(1 1); ess=('receive' 'transfer');;
 
     esac
 
     gnuimage="${tempdir}/sar_${backsuf}_${et}.png"
 
-    if [ "${ey}" != '' ]; then
-      ey="set yrange[0:${ey}]"
-    fi
-
-    cat << EOF > ${gnuplot}
+    cat << EOF > ${gnucmd}
 reset
 set terminal png transparent truecolor small size ${image_w},${image_h}
 set output '${gnuimage}'
-set margins screen 0.090, screen 0.964, screen 0.110, screen 0.970 # lrbt
+set margins screen 0.090, screen 0.964, screen 0.110, screen 0.970 # l,r,b,t
 set termoption enhanced
 set colorsequence podo
 set grid
-set style fill transparent solid 0.7
+set style fill transparent solid 0.6
 set xdata time
 set timefmt '%Y-%m-%dT%H:%M'
 set xrange['${xmin}':'${xmax}']
-${ey}
+SET_YRANGE
 set key top right reverse horizontal tc rgb "gray40"
-set xtics time format "${xtic}" offset 0,graph 0.03
+set xtics format "${xtic}" offset 0,graph 0.03
 set label '${eu}' at screen 0.01,0.5 rotate by 90 center
 EOF
+
+    valuemax=-9999999
+    valuemin=9999999
 
     for ie in ${!eps[@]}; do
 
@@ -106,7 +131,7 @@ EOF
 
       linetype=$((linetype + 1))
 
-      for f in $(ls -r ${tempdir}/${e}_20??????.txt); do
+      for f in $(find ${tempdir}/${e}_20??????.txt | sort | tac); do
 
         ymd8=$(echo ${f} | sed -e "s;${tempdir}/${e}_;;" | sed -e 's;\.txt;;')
 
@@ -121,12 +146,12 @@ EOF
 
         tac ${f} \
           | awk '$1 ~ /[0-9:]{8}/' \
-          | awk '$1 !~ /00:00/' \
+          | awk '$1 !~ /^00:00/ || NR > 5' \
           | awk '$3 !~ /[A-Za-z]/' \
-          | awk "{print \$1,\$${ep}/${ef}}" \
+          | awk "{print \$1,${ep}/${ef}}" \
+          | sed -e "s/^00:00/${ymdp1}T00:00/" \
           | sed -e "s/^\([0-9:]\{5\}\)/${ymdp0}T\1/" \
           >> ${gnudata}
-          #| sed -e "s/^00:00/${ymdp1}T00:00/" \
 
       done # for f
 
@@ -135,22 +160,26 @@ EOF
         xlatest="$(head -n 1 ${gnudata} | cut -d' ' -f1)"
         xlatest="$(date -d "${xlatest}" +'%Y-%m-%dT%H:%M')"
 
+        if [ $(date -d "${xmax}" +%s) -lt $(date -d "${xlatest}" +%s) ]; then
+          xlatest=${xmax}
+        fi
+
         et2=''
-        if [ ${e} = 'n' ]; then
+        if [ "${e}" = 'n' ]; then
           et2=":${nw_iface}"
         fi
 
-        cat << EOF2 >> ${gnuplot}
+        cat << EOF2 >> ${gnucmd}
 set label "${servername}${et}${et2} ${backsuf}\n${xmin} to ${xlatest}" at graph 0.02,0.94 tc rgb "gray40"
 EOF2
 
       fi
 
       tac ${gnudata} > ${gnutemp}
-      mv ${gnutemp} ${gnudata}
+      mv -f ${gnutemp} ${gnudata}
 
-      #max=$(cat ${gnudata} | awk 'BEGIN {m =-1000000} {if (m < $2) m = $2} END {print m}')
-      #min=$(cat ${gnudata} | awk 'BEGIN {m = 1000000} {if (m > $2) m = $2} END {print m}')
+      valuemax=$(cat ${gnudata} | awk 'BEGIN {m = '${valuemax}'} {if (m < $2) m = $2} END {print m}')
+      valuemin=$(cat ${gnudata} | awk 'BEGIN {m = '${valuemin}'} {if (m > $2) m = $2} END {print m}')
 
       gnuecho="'${gnudata}' using 1:2 \
         with filledcurves above y1=0 \
@@ -167,19 +196,36 @@ EOF2
         gnuecho="${gnuecho}, \\"
       fi
 
-      echo ${gnuecho} >> ${gnuplot}
+      echo ${gnuecho} >> ${gnucmd}
 
     done # for ie
 
-      gnuplot ${gnuplot}
+    valuemax=$(echo ${valuemax} | sed -e 's/\..*//')
+    valuemin=$(echo ${valuemin} | sed -e 's/\..*//')
 
-      rm -f ${gnudatapre}* ${gnuplot} ${gnutemp}
+    if   [ "${eh}" != '' ]; then
+      setyrange="set yrange[0:${eh}]"
+    elif [ "${ey}" != '' ]; then
+      if [ ${ey} -lt ${valuemax} ]; then
+        setyrange="set yrange[0:${valuemax}]"
+      else
+        setyrange="set yrange[0:${ey}]"
+      fi
+    else
+      setyrange=""
+    fi
+
+    cat ${gnucmd} | sed -e "s/SET_YRANGE/${setyrange}/" > ${gnutemp}
+    mv -f ${gnutemp} ${gnucmd}
+
+    gnuplot ${gnucmd}
+
+    rm -f ${gnupre}*
 
   done # for e
 
-  convert -append ${tempdir}/sar_${backsuf}_*.png ${tempdir}/sar_${backsuf}.png
+  convert -append ${tempdir}/sar_${backsuf}_{cpu,loadavg,disk,mem,memswap,nw}.png ${resultdir}/sar_${backsuf}.png
 
 done # for hourbackmax
 
-convert +append ${tempdir}/sar_{1-hour,1-day,4-week}.png ${resultdir}/stat.png
-
+convert +append ${resultdir}/sar_{1-hour,1-day,4-week}.png ${resultdir}/sar.png
