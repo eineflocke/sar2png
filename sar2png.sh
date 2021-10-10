@@ -64,10 +64,9 @@ for hourbackmax in 1 24 672; do
   xmin="$(date -d "@${xmin}" +'%Y-%m-%dT%H:%M')"
   
   ymdmin=$(date -d "${xmin}" +'%Y%m%d')
+  ymdmax=$(date -d "${xmax}" +'%Y%m%d')
 
-  linetype=1
-
-  for e in u q d r n S; do
+  for e in u q d r S n; do
 
     case ${e} in
 
@@ -75,25 +74,25 @@ for hourbackmax in 1 24 672; do
       #   single element per letter:
       #     et='chart title'; eu='unit displayed'; ey='y-axis maximum softlimit (blank for auto)'; eh='y-axis maximum hardlimit (blank for auto)';
       #   can be multiple elements per letter:
-      #     eps=('element col number'); efs=(division factor); ess=('elemnt name displayed');;
+      #     eps=('element col number'); efs=(division factor); ess=('element name displayed'); ecs=('fill color');;
 
       'u' ) et='cpu'; eu='[%]'; ey='100'; eh='';
-            eps=('($3+$5)' '$5'); efs=(1 1); ess=('user' 'sys');;
+            eps=('($3+$5)' '$5'); efs=(1 1); ess=('user' 'sys'); ecs=('#e69f00' '#56b4e9');;
 
       'q' ) et='loadavg'; eu='[]'; ey=''; eh='';
-            eps=('$4' '$6'); efs=(1 1); ess=('1min' '15min');;
+            eps=('$4' '$6'); efs=(1 1); ess=('1min' '15min'); ecs=('#009e73' '#f0e442');;
 
       'd' ) et='disk'; eu='[MiB/s]'; ey=''; eh='';
-            eps=('$4' '$5'); efs=(1024 1024); ess=('read' 'write');;
+            eps=('$4' '$5'); efs=(1024 1024); ess=('read' 'write'); ecs=('#0072b2' '#d55e00');;
 
       'r' ) et='mem'; eu='[MiB]'; ey='1024'; eh='';
-            eps=('$4'); efs=(1024); ess=('used');;
+            eps=('$4'); efs=(1024); ess=('used'); ecs=('#cc79a7');;
 
       'S' ) et='memswap'; eu='[MiB]'; ey='5000'; eh='';
-            eps=('($2+$3)' '$3'); efs=(1024 1024); ess=('free' 'used');;
+            eps=('($2+$3)' '$3'); efs=(1024 1024); ess=('free' 'used'); ecs=('#56b4e9' '#009e73');;
 
       'n' ) et='nw'; eu='[KiB/s]'; ey=''; eh='';
-            eps=('$5' '$6'); efs=(1 1); ess=('receive' 'transfer');;
+            eps=('$5' '$6'); efs=(1 1); ess=('receive' 'transfer'); ecs=('#666666' '#e69f00');;
 
     esac
 
@@ -103,9 +102,8 @@ for hourbackmax in 1 24 672; do
 reset
 set terminal png transparent truecolor small size ${image_w},${image_h}
 set output '${gnuimage}'
-set margins screen 0.090, screen 0.964, screen 0.110, screen 0.970 # l,r,b,t
+set margins screen 0.092, screen 0.964, screen 0.110, screen 0.970 # l,r,b,t
 set termoption enhanced
-set colorsequence podo
 set grid
 set style fill transparent solid 0.6
 set xdata time
@@ -118,24 +116,23 @@ set label '${eu}' at screen 0.01,0.5 rotate by 90 center
 EOF
 
     valuemax=-9999999
-    valuemin=9999999
 
     for ie in ${!eps[@]}; do
 
       es=${ess[${ie}]}
       ep=${eps[${ie}]}
       ef=${efs[${ie}]}
+      ec=${ecs[${ie}]}
 
       gnudata="${gnudatapre}_${et}_${es}.txt"
       rm -f ${gnudata}
-
-      linetype=$((linetype + 1))
 
       for f in $(find ${tempdir}/${e}_20??????.txt | sort | tac); do
 
         ymd8=$(echo ${f} | sed -e "s;${tempdir}/${e}_;;" | sed -e 's;\.txt;;')
 
         if [ ${ymd8} -lt ${ymdmin} ]; then break; fi
+        if [ ${ymd8} -gt ${ymdmax} ]; then continue; fi
 
         y4=$(echo ${ymd8} | cut -c1-4)
         m2=$(echo ${ymd8} | cut -c5-6)
@@ -145,10 +142,7 @@ EOF
         ymdp1="$(date -d "1 day ${ymdp0}" +'%Y-%m-%d')"
 
         tac ${f} \
-          | awk '$1 ~ /[0-9:]{8}/' \
-          | awk '$1 !~ /^00:00/ || NR > 5' \
-          | awk '$3 !~ /[A-Za-z]/' \
-          | awk "{print \$1,${ep}/${ef}}" \
+          | awk '{if (($1 ~ /[0-9:]{8}/) && ($1 !~ /^00:00/ || NR > 5) && ($3 !~ /[A-Za-z]/)) print $1,'${ep}/${ef}';}' \
           | sed -e "s/^00:00/${ymdp1}T00:00/" \
           | sed -e "s/^\([0-9:]\{5\}\)/${ymdp0}T\1/" \
           >> ${gnudata}
@@ -157,20 +151,19 @@ EOF
 
       if [ ${ie} -eq 0 ]; then
 
-        xlatest="$(head -n 1 ${gnudata} | cut -d' ' -f1)"
-        xlatest="$(date -d "${xlatest}" +'%Y-%m-%dT%H:%M')"
+        xlatest="$(head -n 1 ${gnudata} | cut -d' ' -f1 | cut -c01-16)"
 
         if [ $(date -d "${xmax}" +%s) -lt $(date -d "${xlatest}" +%s) ]; then
           xlatest=${xmax}
         fi
 
-        et2=''
+        etsuf=''
         if [ "${e}" = 'n' ]; then
-          et2=":${nw_iface}"
+          etsuf=":${nw_iface}"
         fi
 
         cat << EOF2 >> ${gnucmd}
-set label "${servername}${et}${et2} ${backsuf}\n${xmin} to ${xlatest}" at graph 0.02,0.94 tc rgb "gray40"
+set label "${servername}${et}${etsuf} ${backsuf}\n${xmin} to ${xlatest}" at graph 0.02,0.94 tc rgb "gray40"
 EOF2
 
       fi
@@ -178,18 +171,16 @@ EOF2
       tac ${gnudata} > ${gnutemp}
       mv -f ${gnutemp} ${gnudata}
 
-      valuemax=$(cat ${gnudata} | awk 'BEGIN {m = '${valuemax}'} {if (m < $2) m = $2} END {print m}')
-      valuemin=$(cat ${gnudata} | awk 'BEGIN {m = '${valuemin}'} {if (m > $2) m = $2} END {print m}')
+      valuemax=$(cat ${gnudata} | awk 'BEGIN {a = '${valuemax}';} {if (a < $2) a = $2;} END {print a;}')
 
       gnuecho="'${gnudata}' using 1:2 \
         with filledcurves above y1=0 \
-        title '${es}' \
-        linetype ${linetype}"
+        title '${es}'"
 
       if [ ${ie} -eq 0 ]; then
-        gnuecho="plot ${gnuecho}"
+        gnuecho="plot ${gnuecho} linecolor rgb '${ec}'"
       else
-        gnuecho="     ${gnuecho}"
+        gnuecho="     ${gnuecho} linecolor rgb '${ec}'"
       fi
 
       if [ ${#eps[@]} -ge 2 -a ${ie} -lt $((${#eps[@]} - 1)) ]; then
@@ -200,12 +191,10 @@ EOF2
 
     done # for ie
 
-    valuemax=$(echo ${valuemax} | sed -e 's/\..*//')
-    valuemin=$(echo ${valuemin} | sed -e 's/\..*//')
-
     if   [ "${eh}" != '' ]; then
       setyrange="set yrange[0:${eh}]"
     elif [ "${ey}" != '' ]; then
+      valuemax=$(echo ${valuemax} | sed -e 's/\..*//')
       if [ ${ey} -lt ${valuemax} ]; then
         setyrange="set yrange[0:${valuemax}]"
       else
