@@ -1,20 +1,26 @@
 #!/bin/bash -u
 
-image_w=450
-image_h=150
+if   [ $# -eq 0 ]; then
+  hourbacks="1 24 840"
+elif [ $# -ge 1 ]; then
+  hourbacks=$1
+fi
+
+image_w=480
+image_h=120
 
 servername="$(hostname) "
 
 sardir='/var/log/sysstat'
 nw_iface='ens3'
 
-#xspecified='2021-10-09T10:00:00'
 xspecified="$(date +'%Y-%m-%dT%H:%M:%S')"
 
 resultdir='/var/www/html/stat'
-tempdir="${resultdir}/sar"
+tempdir="${resultdir}/sar2png"
 
 mkdir -p ${resultdir} ${tempdir}
+cd ${tempdir}
 
 for dback in $(seq 0 1); do
 
@@ -22,21 +28,27 @@ for dback in $(seq 0 1); do
   sar="${sardir}/sa${ymd}"
 
   if [ ! -f ${sar} ] && [ -f ${sar}.bz2 ]; then
-    bunzip2 ${sar}.bz2
+    sarbase="$(basename ${sar})"
+    cp -f ${sar}.bz2 .
+    bunzip2 ${sarbase}.bz2
+    rm -f ${sarbase}.bz2
   fi
 
-  sar -f ${sar} -u > ${tempdir}/u_${ymd}.txt
-  sar -f ${sar} -q > ${tempdir}/q_${ymd}.txt
-  sar -f ${sar} -d > ${tempdir}/d_${ymd}.txt
-  sar -f ${sar} -r > ${tempdir}/r_${ymd}.txt
-  sar -f ${sar} -S > ${tempdir}/S_${ymd}.txt
-  sar -f ${sar} -n DEV --iface=${nw_iface} > ${tempdir}/n_${ymd}.txt
+  sar -f ${sar} -u > u_${ymd}.txt
+  sar -f ${sar} -q > q_${ymd}.txt
+  sar -f ${sar} -d > d_${ymd}.txt
+  sar -f ${sar} -r > r_${ymd}.txt
+  sar -f ${sar} -S > S_${ymd}.txt
+  sar -f ${sar} -n DEV --iface=${nw_iface} > n_${ymd}.txt
 
 done # for dback
 
-find ${tempdir}/[dnqrSu]_20??????.txt -mtime +35 -delete
+ymdtoday="$(date +'%Y%m%d')"
+echo "$(date +'%H:%M:%S') $(df / | tail -n 1)" >> F_${ymdtoday}.txt
 
-gnupre="${tempdir}/gnu"
+find [dnqrSuF]_20??????.txt -mtime +35 -delete
+
+gnupre="gnu"
 
 gnudatapre="${gnupre}data"
 gnucmd="${gnupre}cmd.txt"
@@ -44,16 +56,18 @@ gnutemp="${gnupre}temp.txt"
 
 rm -f ${gnupre}*
 
-for hourbackmax in 1 24 672; do
+for hourbackmax in ${hourbacks}; do
 
   case ${hourbackmax} in
       1 ) secover=600;   backsuf='1-hour'; xtic='%H:%M';;
       3 ) secover=1800;  backsuf='3-hour'; xtic='%H:%M';;
       6 ) secover=3600;  backsuf='6-hour'; xtic='%H:%M';;
      24 ) secover=14400; backsuf='1-day';  xtic='%dT%H';;
-    168 ) secover=86400; backsuf='7-day';  xtic='%m-%d';;
+     72 ) secover=43200; backsuf='3-day';  xtic='%dT%H';;
+    168 ) secover=86400; backsuf='1-week'; xtic='%m-%d';;
     672 ) secover=86400; backsuf='4-week'; xtic='%m-%d';;
     840 ) secover=86400; backsuf='5-week'; xtic='%m-%d';;
+      * ) echo "invalid hourbackmax?"; exit 1;;
   esac
 
   nows=$(date -d "${xspecified}" +%s)
@@ -62,11 +76,11 @@ for hourbackmax in 1 24 672; do
 
   xmax="$(date -d "@${xmax}" +'%Y-%m-%dT%H:%M')"
   xmin="$(date -d "@${xmin}" +'%Y-%m-%dT%H:%M')"
-  
+
   ymdmin=$(date -d "${xmin}" +'%Y%m%d')
   ymdmax=$(date -d "${xmax}" +'%Y%m%d')
 
-  for e in u q d r S n; do
+  for e in u q d r S n F; do
 
     case ${e} in
 
@@ -94,6 +108,9 @@ for hourbackmax in 1 24 672; do
       'n' ) et='nw'; eu='[KiB/s]'; ey=''; eh='';
             eps=('$5' '$6'); efs=(1 1); ess=('receive' 'transfer'); ecs=('#666666' '#e69f00');;
 
+      'F' ) et='df'; eu='[GiB]'; ey='120'; eh='';
+            eps=('$3' '$4'); efs=(1048576 1048576); ess=('free' 'used'); ecs=('#f0e442' '#0072b2');;
+
     esac
 
     gnuimage="${tempdir}/sar_${backsuf}_${et}.png"
@@ -102,7 +119,7 @@ for hourbackmax in 1 24 672; do
 reset
 set terminal png transparent truecolor small size ${image_w},${image_h}
 set output '${gnuimage}'
-set margins screen 0.092, screen 0.964, screen 0.110, screen 0.970 # l,r,b,t
+set margins screen 0.090, screen 0.970, screen 0.120, screen 0.960 # l,r,b,t
 set termoption enhanced
 set grid
 set style fill transparent solid 0.6
@@ -213,8 +230,9 @@ EOF2
 
   done # for e
 
-  convert -append ${tempdir}/sar_${backsuf}_{cpu,loadavg,disk,mem,memswap,nw}.png ${resultdir}/sar_${backsuf}.png
+  convert -append ${tempdir}/sar_${backsuf}_{cpu,loadavg,mem,memswap,df,disk,nw}.png ${tempdir}/sar_${backsuf}.png
 
 done # for hourbackmax
 
-convert +append ${resultdir}/sar_{1-hour,1-day,4-week}.png ${resultdir}/sar.png
+convert +append ${tempdir}/sar_?-{hour,day,week}.png ${resultdir}/sar2png.png
+
