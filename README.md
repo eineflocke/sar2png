@@ -1,4 +1,4 @@
-# Sar2Png
+# sar2png
 
 ![](https://raw.githubusercontent.com/eineflocke/sar2png/master/sample.png)
 

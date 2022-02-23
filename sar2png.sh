@@ -11,10 +11,11 @@ image_h=120
 
 servername="$(hostname) "
 
+elems='u q d r S n F'
+
 sardir='/var/log/sysstat'
 nw_iface='ens3'
-
-xspecified="$(date +'%Y-%m-%dT%H:%M:%S')"
+df_mount='/'
 
 resultdir='/var/www/html/stat'
 tempdir="${resultdir}/sar2png"
@@ -22,31 +23,7 @@ tempdir="${resultdir}/sar2png"
 mkdir -p ${resultdir} ${tempdir}
 cd ${tempdir}
 
-for dback in $(seq 0 1); do
-
-  ymd="$(date -d "${dback} days ago" +%Y%m%d)"
-  sar="${sardir}/sa${ymd}"
-
-  if [ ! -f ${sar} ] && [ -f ${sar}.bz2 ]; then
-    sarbase="$(basename ${sar})"
-    cp -f ${sar}.bz2 .
-    bunzip2 ${sarbase}.bz2
-    rm -f ${sarbase}.bz2
-  fi
-
-  sar -f ${sar} -u > u_${ymd}.txt
-  sar -f ${sar} -q > q_${ymd}.txt
-  sar -f ${sar} -d > d_${ymd}.txt
-  sar -f ${sar} -r > r_${ymd}.txt
-  sar -f ${sar} -S > S_${ymd}.txt
-  sar -f ${sar} -n DEV --iface=${nw_iface} > n_${ymd}.txt
-
-done # for dback
-
-ymdtoday="$(date +'%Y%m%d')"
-echo "$(date +'%H:%M:%S') $(df / | tail -n 1)" >> F_${ymdtoday}.txt
-
-find [dnqrSuF]_20??????.txt -mtime +35 -delete
+find ?_20??????.txt -mtime +35 -delete
 
 gnupre="gnu"
 
@@ -55,6 +32,39 @@ gnucmd="${gnupre}cmd.txt"
 gnutemp="${gnupre}temp.txt"
 
 rm -f ${gnupre}*
+
+for e in ${elems}; do
+
+  for dback in $(seq 0 1); do
+
+    if [ "${e}" = 'F' ]; then
+      break
+    fi
+
+    ymd="$(date -d "${dback} days ago" +%Y%m%d)"
+    sar="${sardir}/sa${ymd}"
+
+    if [ ! -f ${sar} ] && [ -f ${sar}.bz2 ]; then
+      sarbase="$(basename ${sar})"
+      cp -f ${sar}.bz2 .
+      bunzip2 ${sarbase}.bz2
+      rm -f ${sarbase}.bz2
+    fi
+
+    opt=''
+    if [ "${e}" = 'n' ]; then
+      opt="DEV --iface=${nw_iface}"
+    fi
+
+    sar -f ${sar} -${e} ${opt} > ${e}_${ymd}.txt
+
+  done # for dback
+
+  if [ "${e}" = 'F' ]; then
+    echo "$(date +'%H:%M:%S') $(df ${df_mount} | tail -n 1)" >> F_$(date +'%Y%m%d').txt
+  fi
+
+done # for e
 
 for hourbackmax in ${hourbacks}; do
 
@@ -70,17 +80,18 @@ for hourbackmax in ${hourbacks}; do
       * ) echo "invalid hourbackmax?"; exit 1;;
   esac
 
-  nows=$(date -d "${xspecified}" +%s)
+  nows=$(date -d "${xspecified:=$(date +'%Y-%m-%dT%H:%M:%S')}" +%s)
+
   xmax=$((nows / secover * secover + secover))
   xmin=$((xmax - hourbackmax * 3600 - secover))
 
   xmax="$(date -d "@${xmax}" +'%Y-%m-%dT%H:%M')"
   xmin="$(date -d "@${xmin}" +'%Y-%m-%dT%H:%M')"
 
-  ymdmin=$(date -d "${xmin}" +'%Y%m%d')
   ymdmax=$(date -d "${xmax}" +'%Y%m%d')
+  ymdmin=$(date -d "${xmin}" +'%Y%m%d')
 
-  for e in u q d r S n F; do
+  for e in ${elems}; do
 
     case ${e} in
 
@@ -90,30 +101,37 @@ for hourbackmax in ${hourbacks}; do
       #   can be multiple elements per letter:
       #     eps=('element col number'); efs=(division factor); ess=('element name displayed'); ecs=('fill color');;
 
-      'u' ) et='cpu'; eu='[%]'; ey='100'; eh='';
-            eps=('($3+$5)' '$5'); efs=(1 1); ess=('user' 'sys'); ecs=('#e69f00' '#56b4e9');;
+      'u' )
+        et='cpu'; eu='[%]'; ey='100'; eh='';
+        eps=('($3+$5)' '$5'); efs=(1 1); ess=('user' 'sys'); ecs=('#e69f00' '#56b4e9');;
 
-      'q' ) et='loadavg'; eu='[]'; ey=''; eh='';
-            eps=('$4' '$6'); efs=(1 1); ess=('1min' '15min'); ecs=('#009e73' '#f0e442');;
+      'q' )
+        et='loadavg'; eu='[]'; ey=''; eh='';
+        eps=('$4' '$6'); efs=(1 1); ess=('1min' '15min'); ecs=('#009e73' '#f0e442');;
 
-      'd' ) et='disk'; eu='[MiB/s]'; ey=''; eh='';
-            eps=('$4' '$5'); efs=(1024 1024); ess=('read' 'write'); ecs=('#0072b2' '#d55e00');;
+      'd' )
+        et='disk'; eu='[MiB/s]'; ey=''; eh='';
+        eps=('$4' '$5'); efs=(1024 1024); ess=('read' 'write'); ecs=('#0072b2' '#d55e00');;
 
-      'r' ) et='mem'; eu='[MiB]'; ey='1024'; eh='';
-            eps=('$4'); efs=(1024); ess=('used'); ecs=('#cc79a7');;
+      'r' )
+        et='mem'; eu='[MiB]'; ey='1024'; eh='';
+        eps=('$4'); efs=(1024); ess=('used'); ecs=('#cc79a7');;
 
-      'S' ) et='memswap'; eu='[MiB]'; ey='5000'; eh='';
-            eps=('($2+$3)' '$3'); efs=(1024 1024); ess=('free' 'used'); ecs=('#56b4e9' '#009e73');;
+      'S' )
+        et='memswap'; eu='[MiB]'; ey='5000'; eh='';
+        eps=('($2+$3)' '$3'); efs=(1024 1024); ess=('free' 'used'); ecs=('#56b4e9' '#009e73');;
 
-      'n' ) et='nw'; eu='[KiB/s]'; ey=''; eh='';
-            eps=('$5' '$6'); efs=(1 1); ess=('receive' 'transfer'); ecs=('#666666' '#e69f00');;
+      'n' )
+        et='nw'; eu='[KiB/s]'; ey=''; eh='';
+        eps=('$5' '$6'); efs=(1 1); ess=('receive' 'transfer'); ecs=('#666666' '#e69f00');;
 
-      'F' ) et='df'; eu='[GiB]'; ey='120'; eh='';
-            eps=('$3' '$4'); efs=(1048576 1048576); ess=('free' 'used'); ecs=('#f0e442' '#0072b2');;
+      'F' )
+        et='df'; eu='[GiB]'; ey='120'; eh='';
+        eps=('$3' '$4'); efs=(1048576 1048576); ess=('free' 'used'); ecs=('#f0e442' '#0072b2');;
 
     esac
 
-    gnuimage="${tempdir}/sar_${backsuf}_${et}.png"
+    gnuimage="sar_${backsuf}_${et}.png"
 
     cat << EOF > ${gnucmd}
 reset
@@ -144,9 +162,9 @@ EOF
       gnudata="${gnudatapre}_${et}_${es}.txt"
       rm -f ${gnudata}
 
-      for f in $(find ${tempdir}/${e}_20??????.txt | sort | tac); do
+      for f in $(find ${e}_20??????.txt | sort | tac); do
 
-        ymd8=$(echo ${f} | sed -e "s;${tempdir}/${e}_;;" | sed -e 's;\.txt;;')
+        ymd8=$(echo ${f} | sed -e "s;${e}_;;" | sed -e 's;\.txt;;')
 
         if [ ${ymd8} -lt ${ymdmin} ]; then break; fi
         if [ ${ymd8} -gt ${ymdmax} ]; then continue; fi
@@ -169,14 +187,15 @@ EOF
       if [ ${ie} -eq 0 ]; then
 
         xlatest="$(head -n 1 ${gnudata} | cut -d' ' -f1 | cut -c01-16)"
-
         if [ $(date -d "${xmax}" +%s) -lt $(date -d "${xlatest}" +%s) ]; then
           xlatest=${xmax}
         fi
 
         etsuf=''
-        if [ "${e}" = 'n' ]; then
+        if   [ "${e}" = 'n' ]; then
           etsuf=":${nw_iface}"
+        elif [ "${e}" = 'F' ]; then
+          etsuf=":${df_mount}"
         fi
 
         cat << EOF2 >> ${gnucmd}
@@ -218,7 +237,7 @@ EOF2
         setyrange="set yrange[0:${ey}]"
       fi
     else
-      setyrange=""
+      setyrange=''
     fi
 
     cat ${gnucmd} | sed -e "s/SET_YRANGE/${setyrange}/" > ${gnutemp}
@@ -230,9 +249,9 @@ EOF2
 
   done # for e
 
-  convert -append ${tempdir}/sar_${backsuf}_{cpu,loadavg,mem,memswap,df,disk,nw}.png ${tempdir}/sar_${backsuf}.png
+  convert -append sar_${backsuf}_{cpu,loadavg,mem,memswap,df,disk,nw}.png sar_${backsuf}.png
 
 done # for hourbackmax
 
-convert +append ${tempdir}/sar_?-{hour,day,week}.png ${resultdir}/sar2png.png
+convert +append sar_?-{hour,day,week}.png ${resultdir}/_sar2png.png
 
