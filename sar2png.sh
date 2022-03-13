@@ -24,10 +24,12 @@ gnupre="gnu.$$."
 
 gnudatapre="${gnupre}data"
 gnucmd="${gnupre}cmd.txt"
+gnucmdtemplate="${gnupre}cmdtemplate.txt"
 gnutemp="${gnupre}temp.txt"
+gnuprint="${gnupre}print.txt"
 
-find gnu.* -mtime +1 -delete
-find ?_20??????.txt -mtime +36 -delete
+find . -name 'gnu.*' -mtime +1 -delete
+find . -name '?_20??????.txt' -mtime +36 -delete
 
 for e in ${elems}; do
 
@@ -137,7 +139,7 @@ for hourbackmax in ${hourbacks}; do
 
     gnuimage="sar_${backsuf}_${et}.png"
 
-    cat << EOF > ${gnucmd}
+    cat << EOF > ${gnucmdtemplate}
 reset
 set terminal png transparent truecolor small size 480,120
 set output '${gnuimage}'
@@ -153,8 +155,6 @@ set key top right reverse horizontal tc rgb "gray40"
 set xtics format "${xtic}" offset 0,graph 0.03
 set label '${eu}' at screen 0.01,0.5 rotate by 90 center
 EOF
-
-    valuemax=-9999999
 
     for ie in ${!eas[@]}; do
 
@@ -202,7 +202,7 @@ EOF
           etsuf=":${df_mount}"
         fi
 
-        cat << EOF2 >> ${gnucmd}
+        cat << EOF2 >> ${gnucmdtemplate}
 set label "${servername}${et}${etsuf} ${backsuf}\n${xmin} to ${xlatest}" at graph 0.02,0.94 tc rgb "gray40"
 EOF2
 
@@ -210,8 +210,6 @@ EOF2
 
       tac ${gnudata} > ${gnutemp}
       mv -f ${gnutemp} ${gnudata}
-
-      valuemax=$(cat ${gnudata} | awk 'BEGIN {a = '${valuemax}';} {if (a < $2) a = $2;} END {print a;}')
 
       gnuecho="'${gnudata}' using 1:2 \
         with filledcurves above y1=0 \
@@ -227,21 +225,29 @@ EOF2
         gnuecho="${gnuecho}, \\"
       fi
 
-      echo ${gnuecho} >> ${gnucmd}
+      echo ${gnuecho} >> ${gnucmdtemplate}
 
     done # for ie
+
+    cat >> ${gnucmdtemplate} << EOF
+set print "${gnuprint}"
+print GPVAL_Y_MAX
+EOF
 
     setyrange=''
     if   [ "${eh}" != '' ]; then
       setyrange="set yrange[0:${eh}]"
-    elif [ "${es}" != '' ]; then
-      if [ $(echo "1000 * (${valuemax} - ${es})" | bc | sed -e 's/\..*//') -le 0 ]; then
+    fi
+    cat ${gnucmdtemplate} | sed -e "s/SET_YRANGE/${setyrange}/" > ${gnucmd}
+
+    if [ "${es}" != '' ]; then
+      gnuplot ${gnucmd}
+      gpmax=$(head -n 1 ${gnuprint})
+      if [ $(echo "1000 * (${gpmax} - ${es})" | bc | sed -e 's/\..*//') -le 0 ]; then
         setyrange="set yrange[0:${es}]"
+        cat ${gnucmdtemplate} | sed -e "s/SET_YRANGE/${setyrange}/" > ${gnucmd}
       fi
     fi
-
-    cat ${gnucmd} | sed -e "s/SET_YRANGE/${setyrange}/" > ${gnutemp}
-    mv -f ${gnutemp} ${gnucmd}
 
     gnuplot ${gnucmd}
 
