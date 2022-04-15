@@ -1,21 +1,30 @@
 #!/bin/bash -u
 
 if   [ $# -eq 0 ]; then
-  hourbacks="1 24 840"
-elif [ $# -ge 1 ]; then
-  hourbacks="$*"
+  cat << EOF1
+sar2png.sh: makes sar results into time-series png images
+usage: $0 time-range in hour {1, 3, 6, 24, 72, 168, 672, 840} [...]
+e.g. : $0 1 24 840
+EOF1
+  exit 0
 fi
 
-servername="$(hostname) "
+hourbacks="$*"
 
-elems='u q d r S n F'
+### user settings ###
 
-sardir='/var/log/sysstat'
-nw_iface='ens3'
+servername="$(hostname | cut -d'.' -f1)"
+
+sardir='/var/log/sa'
+nw_iface='eth0'
 df_mount='/'
 
-resultdir='/var/www/html/stat'
+resultdir="${HOME}/public_html/log"
+resultpath="${resultdir}/_sar2png.png"
+
 tempdir="${resultdir}/sar2png"
+
+### preparation ###
 
 mkdir -p ${resultdir} ${tempdir}
 cd ${tempdir}
@@ -31,6 +40,10 @@ gnuprint="${gnupre}print.txt"
 find . -name 'gnu.*' -mtime +1 -delete
 find . -name '?_20??????.txt' -mtime +36 -delete
 
+### text-dumping sar ###
+
+elems='u q d r S n F'
+
 for e in ${elems}; do
 
   if [ "${e}" = 'F' ]; then
@@ -41,7 +54,8 @@ for e in ${elems}; do
   for dback in $(seq 0 1); do
 
     ymd="$(date -d "${dback} days ago" +%Y%m%d)"
-    sar="${sardir}/sa${ymd}"
+    d2="$(echo ${ymd} | cut -c7-8)"
+    sar="${sardir}/sa${d2}"
 
     if [ ! -f ${sar} ] && [ -f ${sar}.bz2 ]; then
       sarbase="$(basename ${sar})"
@@ -52,7 +66,7 @@ for e in ${elems}; do
 
     opt=''
     if [ "${e}" = 'n' ]; then
-      opt="DEV --iface=${nw_iface}"
+      opt="DEV"
     fi
 
     sar -f ${sar} -${e} ${opt} > ${e}_${ymd}.txt
@@ -61,9 +75,11 @@ for e in ${elems}; do
 
 done # for e
 
-for hourbackmax in ${hourbacks}; do
+### plotting ###
 
-  case ${hourbackmax} in
+for hourback in ${hourbacks}; do
+
+  case ${hourback} in
       1 ) secover=600;   backsuf='1-hour'; xtic='%H:%M';;
       3 ) secover=1800;  backsuf='3-hour'; xtic='%H:%M';;
       6 ) secover=3600;  backsuf='6-hour'; xtic='%H:%M';;
@@ -72,13 +88,14 @@ for hourbackmax in ${hourbacks}; do
     168 ) secover=86400; backsuf='1-week'; xtic='%m-%d';;
     672 ) secover=86400; backsuf='4-week'; xtic='%m-%d';;
     840 ) secover=86400; backsuf='5-week'; xtic='%m-%d';;
-      * ) echo "invalid hourbackmax?"; exit 1;;
+      * ) echo "invalid arg?: ${hourback}"; exit 1;;
   esac
 
-  nows=$(date -d "${xspecified:=$(date +'%Y-%m-%dT%H:%M:%S')}" +%s)
+  : ${datenow:=$(date +'%Y-%m-%dT%H:%M')}
+  unixnow=$(date -d "${datenow}" +%s)
 
-  unixmax=$((nows / secover * secover + secover))
-  unixmin=$((unixmax - hourbackmax * 3600 - secover))
+  unixmax=$(((unixnow / secover) * secover + secover))
+  unixmin=$((unixmax - hourback * 3600 - secover))
 
   xmax="$(date -d "@${unixmax}" +'%Y-%m-%dT%H:%M')"
   xmin="$(date -d "@${unixmin}" +'%Y-%m-%dT%H:%M')"
@@ -103,37 +120,36 @@ for hourbackmax in ${hourbacks}; do
       #     eh=y-axis maximum hardlimit (blank for auto);
       #   can be multiple elements per letter:
       #     eas=('awk col number');
-      #     efs=(division factor);
       #     ens=('element name displayed');
       #     ecs=('fill color');;
 
       'u' )
         et='cpu'; eu='[%]'; es=100; eh='';
-        eas=('($3+$5)' '$5'); efs=(1 1); ens=('user' 'sys'); ecs=('#e69f00' '#56b4e9');;
+        eas=('($3+$5)' '$5'); ens=('user' 'sys'); ecs=('#e69f00' '#56b4e9');;
 
       'q' )
         et='loadavg'; eu='[]'; es=0.1; eh='';
-        eas=('$4' '$6'); efs=(1 1); ens=('1min' '15min'); ecs=('#009e73' '#f0e442');;
+        eas=('$4' '$6'); ens=('1min' '15min'); ecs=('#009e73' '#f0e442');;
 
       'd' )
         et='disk'; eu='[MiB/s]'; es=0.1; eh='';
-        eas=('$4' '$5'); efs=(1024 1024); ens=('read' 'write'); ecs=('#0072b2' '#d55e00');;
+        eas=('$4' '$5'); ens=('read' 'write'); ecs=('#0072b2' '#d55e00');;
 
       'r' )
-        et='mem'; eu='[MiB]'; es=1024; eh='';
-        eas=('$4'); efs=(1024); ens=('used'); ecs=('#cc79a7');;
+        et='mem'; eu='[GiB]'; es=2.5; eh='';
+        eas=('($2+$3)' '$3'); ens=('free' 'used'); ecs=('#e5bad2' '#cc79a7');;
 
       'S' )
-        et='memswap'; eu='[MiB]'; es=5000; eh='';
-        eas=('($2+$3)' '$3'); efs=(1024 1024); ens=('free' 'used'); ecs=('#56b4e9' '#009e73');;
+        et='memswap'; eu='[GiB]'; es=5; eh='';
+        eas=('($2+$3)' '$3'); ens=('free' 'used'); ecs=('#d2bae5' '#a779cc');;
 
       'n' )
         et='nw'; eu='[MiB/s]'; es=0.1; eh='';
-        eas=('$5' '$6'); efs=(1024 1024); ens=('receive' 'transfer'); ecs=('#666666' '#e69f00');;
+        eas=('$5' '$6'); ens=('receive' 'transfer'); ecs=('#666666' '#e69f00');;
 
       'F' )
-        et='df'; eu='[GiB]'; es=120; eh='';
-        eas=('$3' '$4'); efs=(1048576 1048576); ens=('free' 'used'); ecs=('#f0e442' '#0072b2');;
+        et='df'; eu='[GiB]'; es=250; eh='';
+        eas=('$3' '$4'); ens=('free' 'used'); ecs=('#a9d9f4' '#56b4e9');;
 
     esac
 
@@ -143,10 +159,13 @@ for hourbackmax in ${hourbacks}; do
 reset
 set terminal png transparent truecolor small size 480,120
 set output '${gnuimage}'
-set margins screen 0.090, screen 0.970, screen 0.120, screen 0.960 # l,r,b,t
+set lmargin screen 0.092
+set rmargin screen 0.972
+set bmargin screen 0.130
+set tmargin screen 0.970
 set termoption enhanced
 set grid
-set style fill transparent solid 0.6
+set style fill transparent solid 0.5
 set xdata time
 set timefmt '%Y-%m-%dT%H:%M'
 set xrange['${xmin}':'${xmax}']
@@ -156,10 +175,21 @@ set xtics format "${xtic}" offset 0,graph 0.03
 set label '${eu}' at screen 0.01,0.5 rotate by 90 center
 EOF
 
+    case "${eu}" in
+      *PiB*) ef=1099511627776;;
+      *TiB*) ef=1073741824;;
+      *GiB*) ef=1048576;;
+      *MiB*) ef=1024;;
+      *PB* ) ef=1000000000000;;
+      *TB* ) ef=1000000000;;
+      *GB* ) ef=1000000;;
+      *MB* ) ef=1000;;
+      *    ) ef=1;;
+    esac
+
     for ie in ${!eas[@]}; do
 
       ea=${eas[${ie}]}
-      ef=${efs[${ie}]}
       en=${ens[${ie}]}
       ec=${ecs[${ie}]}
 
@@ -179,6 +209,11 @@ EOF
 
         ymdp0="${y4}-${m2}-${d2}"
         ymdp1="$(date -d "1 day ${ymdp0}" +'%Y-%m-%d')"
+
+        if [ "${e}" = 'n' ]; then
+          grep ${nw_iface} ${f} > ${f}.tmp
+          mv -f ${f}.tmp ${f}
+        fi
 
         tac ${f} \
           | awk '{if (($1 ~ /[0-9:]{8}/) && ($1 !~ /^00:00/ || NR > 5) && ($3 !~ /[A-Za-z]/)) print $1,'${ea}/${ef}';}' \
@@ -203,7 +238,7 @@ EOF
         fi
 
         cat << EOF2 >> ${gnucmdtemplate}
-set label "${servername}${et}${etsuf} ${backsuf}\n${xmin} to ${xlatest}" at graph 0.02,0.94 tc rgb "gray40"
+set label "${servername} ${et}${etsuf} ${backsuf}\n${xmin} to ${xlatest}" at graph 0.01,0.94 tc rgb "gray40"
 EOF2
 
       fi
@@ -240,16 +275,16 @@ EOF
     fi
     cat ${gnucmdtemplate} | sed -e "s/SET_YRANGE/${setyrange}/" > ${gnucmd}
 
-    if [ "${es}" != '' ]; then
-      gnuplot ${gnucmd}
+    gnuplot ${gnucmd}
+
+    if [ "${eh}" = '' ] && [ "${es}" != '' ]; then
       gpmax=$(head -n 1 ${gnuprint})
       if [ $(echo "1000 * (${gpmax} - ${es})" | bc | sed -e 's/\..*//') -le 0 ]; then
         setyrange="set yrange[0:${es}]"
         cat ${gnucmdtemplate} | sed -e "s/SET_YRANGE/${setyrange}/" > ${gnucmd}
       fi
+      gnuplot ${gnucmd}
     fi
-
-    gnuplot ${gnucmd}
 
     rm -f ${gnupre}*
 
@@ -257,7 +292,7 @@ EOF
 
   convert -append sar_${backsuf}_{cpu,loadavg,mem,memswap,df,disk,nw}.png sar_${backsuf}.png
 
-done # for hourbackmax
+done # for hourback
 
-convert +append sar_?-{hour,day,week}.png ${resultdir}/_sar2png.png
+convert +append sar_?-{hour,day,week}.png ${resultpath}
 
