@@ -1,11 +1,11 @@
 #!/bin/bash -u
 
 if   [ $# -eq 0 ]; then
-  cat << EOF1
+  cat << EOF
 sar2png.sh: makes sar results into time-series png images
 usage: $0 time-range in hour {1, 3, 6, 24, 72, 168, 672, 840} [...]
 e.g. : $0 1 24 840
-EOF1
+EOF
   exit 0
 fi
 
@@ -42,7 +42,7 @@ find . -name '?_20??????.txt' -mtime +36 -delete
 
 ### text-dumping sar ###
 
-elems='u q d r S n F'
+elems='u q r S F d n'
 
 for e in ${elems}; do
 
@@ -51,17 +51,20 @@ for e in ${elems}; do
     continue
   fi
 
-  for dback in $(seq 0 1); do
+  for dback in $(seq 0 28); do
 
     ymd="$(date -d "${dback} days ago" +%Y%m%d)"
-    d2="$(echo ${ymd} | cut -c7-8)"
-    sar="${sardir}/sa${d2}"
+    sardump="${e}_${ymd}.txt"
 
-    if [ ! -f ${sar} ] && [ -f ${sar}.bz2 ]; then
-      sarbase="$(basename ${sar})"
-      cp -f ${sar}.bz2 .
-      bunzip2 ${sarbase}.bz2
-      rm -f ${sarbase}.bz2
+    if [ ${dback} -ge 2 ] && [ -f ${sardump} ]; then
+      continue
+    fi
+
+    d2="$(echo ${ymd} | cut -c7-8)"
+    sarpath="${sardir}/sa${d2}"
+
+    if [ ! -f ${sarpath} ]; then
+      continue
     fi
 
     opt=''
@@ -69,7 +72,7 @@ for e in ${elems}; do
       opt="DEV"
     fi
 
-    sar -f ${sar} -${e} ${opt} > ${e}_${ymd}.txt
+    LC_ALL=C sar -f ${sarpath} -${e} ${opt} > ${sardump}
 
   done # for dback
 
@@ -112,7 +115,7 @@ for hourback in ${hourbacks}; do
 
     case ${e} in
 
-      # 'sar letter' )
+      # 'sar letter (F for df)' )
       #   single element per letter:
       #     et='chart title';
       #     eu='unit displayed';
@@ -153,7 +156,7 @@ for hourback in ${hourbacks}; do
 
     esac
 
-    gnuimage="sar_${backsuf}_${et}.png"
+    gnuimage="solo_${hourback}_${e}.png"
 
     cat << EOF > ${gnucmdtemplate}
 reset
@@ -237,9 +240,9 @@ EOF
           etsuf=":${df_mount}"
         fi
 
-        cat << EOF2 >> ${gnucmdtemplate}
+        cat << EOF >> ${gnucmdtemplate}
 set label "${servername} ${et}${etsuf} ${backsuf}\n${xmin} to ${xlatest}" at graph 0.01,0.94 tc rgb "gray40"
-EOF2
+EOF
 
       fi
 
@@ -290,9 +293,13 @@ EOF
 
   done # for e
 
-  convert -append sar_${backsuf}_{cpu,loadavg,mem,memswap,df,disk,nw}.png sar_${backsuf}.png
+  pngs=""
+  for e in ${elems}; do
+    pngs="${pngs} solo_${hourback}_${e}.png"
+  done
+  convert -append ${pngs} hour_${hourback}.png
 
 done # for hourback
 
-convert +append sar_?-{hour,day,week}.png ${resultpath}
+convert +append hour_*.png ${resultpath}
 

@@ -4,4 +4,4 @@
 
 makes sar (sysstat) results into time-series png images
 
-requires gnuplot, imagemagick
+requires gnuplot >= 4, imagemagick >= 6
