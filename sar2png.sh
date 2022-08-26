@@ -17,10 +17,11 @@ servername="$(hostname | cut -d'.' -f1)"
 
 sardir='/var/log/sa'
 nw_iface='eth0'
+disk_dev='dev253-0'
 df_mount='/'
 
 resultdir="${HOME}/public_html/log"
-resultpath="${resultdir}/_sar2png.png"
+resultpath="${resultdir}/_sar.png"
 
 tempdir="${resultdir}/sar2png"
 
@@ -46,8 +47,10 @@ elems='u q r S F d n'
 
 for e in ${elems}; do
 
+  Fymd=$(date -d '1 minute ago' +'%Y%m%d')
+
   if [ "${e}" = 'F' ]; then
-    echo "$(date +'%H:%M:%S') $(df ${df_mount} | tail -n 1)" >> F_$(date +'%Y%m%d').txt
+    echo "$(date +'%H:%M:%S') $(df ${df_mount} | tail -n 1)" >> F_${Fymd}.txt
     continue
   fi
 
@@ -218,6 +221,11 @@ EOF
           mv -f ${f}.tmp ${f}
         fi
 
+        if [ "${e}" = 'd' ]; then
+          grep ${disk_dev} ${f} > ${f}.tmp
+          mv -f ${f}.tmp ${f}
+        fi
+
         tac ${f} \
           | awk '{if (($1 ~ /[0-9:]{8}/) && ($1 !~ /^00:00/ || NR > 5) && ($3 !~ /[A-Za-z]/)) print $1,'${ea}/${ef}';}' \
           | sed -e "s/^00:00/${ymdp1}T00:00/" \
@@ -236,6 +244,8 @@ EOF
         etsuf=''
         if   [ "${e}" = 'n' ]; then
           etsuf=":${nw_iface}"
+        elif [ "${e}" = 'd' ]; then
+          etsuf=":${disk_dev}"
         elif [ "${e}" = 'F' ]; then
           etsuf=":${df_mount}"
         fi
