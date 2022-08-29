@@ -48,8 +48,8 @@ gnucmdtemplate="${gnupre}cmdtemplate.txt"
 gnutemp="${gnupre}temp.txt"
 gnuprint="${gnupre}print.txt"
 
-find . -name 'gnu.*' -maxdepth 1 -mtime +1 -delete
-find . -name '?_20??????.txt' -maxdepth 1 -mtime +36 -delete
+find . -maxdepth 1 -name 'gnu.*' -mtime +1 -delete
+find . -maxdepth 1 -name '?_20??????.txt' -mtime +36 -delete
 
 ### text-dumping sar ###
 
@@ -75,10 +75,19 @@ for e in ${elems}; do
 
     [ ${dback} -ge 2 ] && [ -f ${sardump} ] && continue
 
-    d2="$(echo ${ymd} | cut -c7-8)"
-    sarpath="${sardir}/sa${d2}"
+    sarpath="${sardir}/sa$(echo ${ymd} | cut -c7-8)"
 
-    [ ! -f ${sarpath} ] && continue
+    if [ ! -f ${sarpath} ]; then
+
+      sarpath2="${sarpath}.bz2"
+      [ ! -f ${sarpath2} ] && continue
+
+      sarbase2="$(basename ${sarpath2})"
+      cp -f ${sarpath2} ${sarbase2}
+      bunzip2 ${sarbase2}
+      rm -f ${sarbase2}
+
+    fi
 
     opt=''
     [ "${e}" = 'n' ] && opt='DEV'
@@ -162,7 +171,7 @@ for hourback in ${hourbacks}; do
         eas=('$4' '$6'); ens=('1min' '15min'); ecs=('#009e73' '#f0e442');;
 
       'd' )
-        et="disk:${disk_dev}"; eu='[MiB/s]';
+        et='disk'; eu='[MiB/s]';
         es=0.1; eh='';
         eas=('$4' '$5'); ens=('read' 'write'); ecs=('#0072b2' '#d55e00');;
 
@@ -177,12 +186,12 @@ for hourback in ${hourbacks}; do
         eas=('($2+$3)' '$3'); ens=('free' 'used'); ecs=('#d2bae5' '#a779cc');;
 
       'n' )
-        et="nw:${nw_iface}"; eu='[MiB/s]';
+        et='nw'; eu='[MiB/s]';
         es=0.1; eh='';
         eas=('$5' '$6'); ens=('receive' 'transfer'); ecs=('#666666' '#e69f00');;
 
       'F' )
-        et="df:${df_mount}"; eu='[GiB]';
+        et='df'; eu='[GiB]';
         es=250; eh='';
         eas=('$3' '$4'); ens=('free' 'used'); ecs=('#a9d9f4' '#56b4e9');;
 
@@ -266,8 +275,15 @@ EOF
           xlatest=${xmax}
         fi
 
+        case "${e}" in
+          'n' ) etsuf=":${nw_iface}";;
+          'd' ) etsuf=":${disk_dev}";;
+          'F' ) etsuf=":${df_mount}";;
+          *   ) etsuf='';;
+        esac
+
         cat << EOF >> ${gnucmdtemplate}
-set label "${servername} ${et} ${backsuf}\n${xmin} to ${xlatest}" at graph 0.01,0.94 tc rgb "gray40"
+set label "${servername} ${et}${etsuf} ${backsuf}\n${xmin} to ${xlatest}" at graph 0.01,0.94 tc rgb "gray40"
 EOF
 
       fi
