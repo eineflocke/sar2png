@@ -1,6 +1,6 @@
 # sar2png
 
-![](https://raw.githubusercontent.com/eineflocke/sar2png/master/sample.png)
+![](https://raw.githubusercontent.com/eineflocke/sar2png/master/SAMPLE.png)
 
 makes sar (sysstat) results into time-series png images
 
