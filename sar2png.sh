@@ -14,30 +14,47 @@ hourbacks="$*"
 
 ### user settings ###
 
-# elements for sampling and drawing charts (sar letter, F for df, M for free)
-elems='u q M S F d n'
-
 # server name displayed
 servername="$(hostname | cut -d'.' -f1)"
+
+echostr="sar2png ${servername} ${hourbacks}"
+echo "$(date) ${echostr} start"
+
+# elements for sampling and drawing charts
+# (sar letter, F for df, M for free, G for nvidia-smi)
+elems='u q r S F d n'
+
 # sar logging directory
 sardir='/var/log/sa'
+
 # network interface name on sar -n DEV
 nw_iface='eth0'
+
 # disk device name on sar -d
 disk_dev='dev253-0'
+
 # disk filesystem on df
 df_mount='/'
 
-# directory/path for the result image
-resultdir="${HOME}/public_html/log"
-resultpath="${resultdir}/_sar.png"
-
 # directory for working
-workdir="${resultdir}/sar2png"
+workdir="${HOME}/public_html/sar2png/${servername}"
+
+# true if merge needed by ImageMagick
+ismerge=false
+
+if ${ismerge}; then
+
+  # path for the merged image
+  mergedpath="${HOME}/public_html/sar2png/${servername}.png"
+
+  mergeddir="$(dirname ${mergedpath})"
+  mkdir -p ${mergeddir}
+
+fi
 
 ### preparation ###
 
-mkdir -p ${resultdir} ${workdir}
+mkdir -p ${workdir}
 cd ${workdir}
 
 gnupre="gnu.$$."
@@ -53,13 +70,18 @@ find . -maxdepth 1 -name '?_20??????.txt' -mtime +36 -delete
 
 ### text-dumping sar ###
 
-for e in ${elems}; do
+Fhms=$(date +'%H:%M:%S')
+Fymd=$(date -d '1 minute ago' +'%Y%m%d')
 
-  Fhms=$(date +'%H:%M:%S')
-  Fymd=$(date -d '1 minute ago' +'%Y%m%d')
+for e in ${elems}; do
 
   if [ "${e}" = 'F' ]; then
     echo "${Fhms} $(df ${df_mount} | tail -n 1)" >> F_${Fymd}.txt
+    continue
+  fi
+
+  if [ "${e}" = 'G' ]; then
+    echo "${Fhms} $(nvidia-smi | head -n 10 | tail -n 1 | cut -d'|' -f3 | sed -e 's;MiB;;g' -e 's;/;;g' -e 's;No devices were found;0 0;g' | xargs)" >> G_${Fymd}.txt
     continue
   fi
 
@@ -67,6 +89,8 @@ for e in ${elems}; do
     echo "${Fhms} $(free | head -n 2 | tail -n 1 | xargs)" >> M_${Fymd}.txt
     continue
   fi
+
+  [ "${hourbacks}" = '0' ] && continue
 
   for dback in $(seq 0 28); do
 
@@ -95,12 +119,12 @@ for e in ${elems}; do
     LC_ALL=C sar -f ${sarpath} -${e} ${opt} > ${sardump}
 
     if [ "${e}" = 'n' ]; then
-      grep ${nw_iface} ${sardump} > ${sardump}.tmp
+      grep " ${nw_iface} " ${sardump} > ${sardump}.tmp
       mv -f ${sardump}.tmp ${sardump}
     fi
 
     if [ "${e}" = 'd' ]; then
-      grep ${disk_dev} ${sardump} > ${sardump}.tmp
+      grep " ${disk_dev} " ${sardump} > ${sardump}.tmp
       mv -f ${sardump}.tmp ${sardump}
     fi
 
@@ -108,9 +132,14 @@ for e in ${elems}; do
 
 done # for e
 
-[ "${hourbacks}" = '0' ] && exit 0
+if [ "${hourbacks}" = '0' ]; then
+  echo "$(date) ${echostr} end"
+  exit 0
+fi
 
 ### drawing ###
+
+hourpngs=''
 
 for hourback in ${hourbacks}; do
 
@@ -143,9 +172,12 @@ for hourback in ${hourbacks}; do
   fi
   ymdmin=$(date -d "${ymdminminus}${xmin}" +'%Y%m%d')
 
-  pngs=""
+  pngs=''
 
   for e in ${elems}; do
+
+    ef0=1
+    eh=''
 
     case ${e} in
 
@@ -161,43 +193,39 @@ for hourback in ${hourbacks}; do
       #     ecs=('fill color');;
 
       'u' )
-        et='cpu'; eu='[%]';
-        es=100; eh='';
+        et='cpu'; eu='[%]'; es=100;
         eas=('($3+$5)' '$5'); ens=('user' 'sys'); ecs=('#e69f00' '#56b4e9');;
 
       'q' )
-        et='loadavg'; eu='[]';
-        es=0.1; eh='';
+        et='loadavg'; eu='[]'; es=0.1;
         eas=('$4' '$6'); ens=('1min' '15min'); ecs=('#009e73' '#f0e442');;
 
       'd' )
-        et='disk'; eu='[MiB/s]';
-        es=0.1; eh='';
+        et='disk'; eu='[MiB/s]'; es=0.1;
         eas=('$4' '$5'); ens=('read' 'write'); ecs=('#0072b2' '#d55e00');;
 
       'r' )
-        et='mem'; eu='[GiB]';
-        es=2.5; eh='';
-        eas=('($2+$3)' '$3'); ens=('free' 'used'); ecs=('#e5bad2' '#cc79a7');;
+        et='mem'; eu='[GiB]'; es=1000;
+        eas=('($2+$4)' '$4'); ens=('free' 'used'); ecs=('#e5bad2' '#cc79a7');;
 
       'S' )
-        et='memswap'; eu='[GiB]';
-        es=5; eh='';
+        et='memswap'; eu='[GiB]'; es=10;
         eas=('($2+$3)' '$3'); ens=('free' 'used'); ecs=('#d2bae5' '#a779cc');;
 
       'n' )
-        et='nw'; eu='[MiB/s]';
-        es=0.1; eh='';
+        et='nw'; eu='[MiB/s]'; es=0.1;
         eas=('$5' '$6'); ens=('receive' 'transfer'); ecs=('#666666' '#e69f00');;
 
       'F' )
-        et='df'; eu='[GiB]';
-        es=250; eh='';
+        et='df'; eu='[GiB]'; es=1000;
         eas=('$3' '$4'); ens=('free' 'used'); ecs=('#a9d9f4' '#56b4e9');;
 
+      'G' )
+        et='gpumem'; eu='[GiB]'; ef0=1024; es=40;
+        eas=('$3' '$2'); ens=('free' 'used'); ecs=('#c5ee7c' '#7fb818');;
+
       'M' )
-        et='mem'; eu='[GiB]';
-        es=2.5; eh='';
+        et='mem(free)'; eu='[GiB]'; es=1000;
         eas=('$3' '$4'); ens=('free' 'used'); ecs=('#e5bad2' '#cc79a7');;
 
     esac
@@ -237,13 +265,15 @@ EOF
       *    ) ef=1;;
     esac
 
+    ef=$((ef / ef0))
+
     for ie in ${!eas[@]}; do
 
       ea=${eas[${ie}]}
       en=${ens[${ie}]}
       ec=${ecs[${ie}]}
 
-      gnudata="${gnudatapre}_${et}_${en}.txt"
+      gnudata="${gnudatapre}_${e}_${ie}.txt"
       rm -f ${gnudata}
 
       for f in $(find ${e}_20??????.txt | sort | tac); do
@@ -261,10 +291,10 @@ EOF
         ymdp1="$(date -d "1 day ${ymdp0}" +'%Y-%m-%d')"
 
         tac ${f} \
-          | awk '{if (($1 ~ /[0-9:]{8}/) && ($1 !~ /^00:00/ || NR > 5) && ($3 !~ /[A-Za-z]/)) print $1,'${ea}/${ef}';}' \
-          | sed -e "s/^00:00/${ymdp1}T00:00/" \
+          | awk '{if (($1 ~ /[0-9:]{8}/) && ($1 !~ /^00:00:../ || NR > 5) && ($3 !~ /[A-Za-z]/)) print $1,'${ea}/${ef}';}' \
           | sed -e "s/^\([0-9:]\{5\}\)/${ymdp0}T\1/" \
           >> ${gnudata}
+          #| sed -e "s/^00:00/${ymdp1}T00:00/" \
 
       done # for f
 
@@ -332,9 +362,15 @@ EOF
 
   done # for e
 
-  convert -append ${pngs} hour_${hourback}.png
+  if ${ismerge}; then
+    hourpng="hour_${hourback}.png"
+    convert -append ${pngs} ${hourpng}
+    hourpngs="${hourpngs} ${hourpng}"
+  fi
 
 done # for hourback
 
-convert +append hour_*.png ${resultpath}
+${ismerge} && convert +append ${hourpngs} ${mergedpath}
+
+echo "$(date) ${echostr} end"
 
