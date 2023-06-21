@@ -22,7 +22,7 @@ echo "$(date) ${echostr} start"
 
 # elements for sampling and drawing charts
 # (sar letter, F for df, M for free, G for nvidia-smi)
-elems='u q r S F d n'
+elems='u q M S F d n'
 
 # sar logging directory
 sardir='/var/log/sa'
@@ -208,6 +208,10 @@ for hourback in ${hourbacks}; do
         et='mem'; eu='[GiB]'; es=1000;
         eas=('($2+$4)' '$4'); ens=('free' 'used'); ecs=('#e5bad2' '#cc79a7');;
 
+      'M' )
+        et='mem(free)'; eu='[GiB]'; es=1000;
+        eas=('$3' '($3-$8)'); ens=('free' 'used'); ecs=('#e5bad2' '#cc79a7');;
+
       'S' )
         et='memswap'; eu='[GiB]'; es=10;
         eas=('($2+$3)' '$3'); ens=('free' 'used'); ecs=('#d2bae5' '#a779cc');;
@@ -223,10 +227,6 @@ for hourback in ${hourbacks}; do
       'G' )
         et='gpumem'; eu='[GiB]'; ef0=1024; es=40;
         eas=('$3' '$2'); ens=('free' 'used'); ecs=('#c5ee7c' '#7fb818');;
-
-      'M' )
-        et='mem(free)'; eu='[GiB]'; es=1000;
-        eas=('$3' '$4'); ens=('free' 'used'); ecs=('#e5bad2' '#cc79a7');;
 
     esac
 

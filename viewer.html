@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Cache-Control" content="no-cache">
+<meta name="robots" content="noindex,nofollow">
+<title>sar2png viewer</title>
+<style>
+body, select, option, button {
+  font-family: 'Segoe UI', '游ゴシック', 'ヒラギノ角ゴ Pro', Helvetica, sans-serif !important;
+  font-size: 14px;
+}
+body {
+  margin: 0;
+  padding: 0;
+  top: 0;
+  left: 0;
+}
+form {
+  display: inline-block;
+  white-space: nowrap;
+  position: relative;
+  margin: 5px;
+  background-color: #fff;
+  z-index: 1001;
+}
+form > span {
+  display: inline-block;
+  text-align: center;
+  padding-right: 10px;
+}
+#images-wrapper {
+  position: relative;
+  width: calc(100vw - 30px);
+  max-height: calc(100vh - 70px);
+  overflow: auto;
+  cursor: grab;
+  margin: 5px;
+  border: 1px solid #eee;
+}
+#images {
+  position: relative;
+  white-space: nowrap;
+  line-height: 0%;
+  padding: 5px;
+  padding-top: 25px;
+  padding-left: 25px;
+}
+#images img {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  width: 480px;
+  height: 120px;
+}
+#images-rownames, #images-colnames {
+  position: absolute;
+  background-color: #fff;
+  border-collapse: collapse;
+  border-spacing: 0;
+  border: 0;
+  overflow: scroll;
+}
+th, td {
+  margin: 0;
+  padding: 0;
+}
+#images-rownames th, #images-colnames th {
+  border: 0;
+  cursor: pointer;
+}
+#images-rownames th:hover, #images-colnames th:hover {
+  background-color: rgba(255, 204, 153, 0.3) !important;
+}
+#images-rownames {
+  width: 25px;
+  margin-top: 25px;
+  z-index: 999;
+}
+#images-rownames th {
+  border-right: 1px solid #eee;
+}
+#images-colnames {
+  height: 25px;
+  margin-left: 25px;
+  z-index: 1000;
+}
+#images-colnames th {
+  border-bottom: 1px solid #eee;
+}
+.colnames {
+  display: block;
+  width: 480px;
+}
+.rownames {
+  display: block;
+  height: 120px;
+  writing-mode: vertical-rl;
+}
+</style>
+</head>
+<body>
+<form id="form">
+<span>モード<br>
+<select id="m">
+<option value="s">単一サーバ</option>
+<option value="e">単一要素</option>
+<option value="p">単一期間</option>
+</select></span>
+<span>サーバ<br>
+<select id="s">
+</select></span>
+<span>要素<br>
+<select id="e">
+<option value="u">CPU</option>
+<option value="q">ロードアベレージ</option>
+<option value="M">メモリ</option>
+<option value="S">メモリスワップ</option>
+<option value="F">ディスク (df /)</option>
+<option value="d">I/O</option>
+<option value="n">ネットワーク</option>
+<option value="G">GPU メモリ</option>
+</select></span>
+<span>期間<br>
+<select id="p">
+<option value="1">1 時間</option>
+<option value="24">1 日</option>
+<option value="840">5 週間</option>
+</select></span>
+<span>要素フィルタ<br>
+<select id="ef">
+<option value="maniac">マニアック</option>
+<option value="normal">ふつう</option>
+<option value="simple">最小限</option>
+</select></span>
+<span style="text-align: left;">description goes here</span>
+</form>
+<div id="images-wrapper">
+  <table id="images-colnames"></table>
+  <table id="images-rownames"></table>
+  <div id="images"></div>
+</div>
+</body>
+<script>
+'use strict';
+
+const qm = document.getElementById('m');
+const qs = document.getElementById('s');
+const qe = document.getElementById('e');
+const qp = document.getElementById('p');
+const qef = document.getElementById('ef');
+
+[
+  'server1', 'server2', 'server3'
+].map(s => {
+  const opt = document.createElement('option');
+  opt.value = s;
+  opt.text = s;
+  qs.appendChild(opt);
+});
+
+const vals = {
+  s: Array.from(qs.options).map(o => o.value),
+  e: Array.from(qe.options).map(o => o.value),
+  p: Array.from(qp.options).map(o => o.value),
+};
+console.log(vals)
+
+const efList = {
+  normal: ['u', 'M', 'd', 'n', 'G'],
+  simple: ['u', 'M', 'G'],
+};
+
+
+const setUrl = () => {
+
+  const params = [];
+  for (const id of ['m', 's', 'e', 'p', 'ef']) {
+    const q = document.getElementById(id);
+    if (!q) continue;
+    params.push(`${id}=${q.value}`);
+  }
+  history.replaceState(null, null, `${location.href.split('?')[0]}?${params.join('&')}`);
+
+}; // setUrl
+
+
+const putImgs = () => {
+
+  const m = qm.value;
+  qs.disabled = m !== 's';
+  qe.disabled = m !== 'e';
+  qp.disabled = m !== 'p';
+
+  const ef = qef.value;
+
+  let ss = vals.s;
+  let es = vals.e.filter(v => ef === 'maniac' || ~efList[ef].indexOf(v));
+  let ps = vals.p;
+
+  if (m === 's') ss = [qs.value];
+  if (m === 'e') es = [qe.value];
+  if (m === 'p') ps = [qp.value];
+
+  const div = document.getElementById('images');
+  div.innerHTML = '';
+  const tablern = document.getElementById('images-rownames');
+  const tablecn = document.getElementById('images-colnames');
+  tablern.innerHTML = '';
+  tablecn.innerHTML = '';
+  const trcn = document.createElement('tr');
+  let isfirstrow = true;
+  let isfirstcol = true;
+
+  for (const s of ss) {
+    const stext = Array.from(qs.options).filter(o => o.value === s)[0].text;
+    for (const e of es) {
+      const etext = Array.from(qe.options).filter(o => o.value === e)[0].text;
+      for (const p of ps) {
+        const ptext = Array.from(qp.options).filter(o => o.value === p)[0].text;
+        if (isfirstrow) {
+          const th = document.createElement('th');
+          const span = document.createElement('span');
+          span.classList.add('colnames');
+          const colid = ps.length > 1 ? `p-${p}` : `e-${e}`;
+          const coltext = ps.length > 1 ? ptext : etext;
+          span.textContent = coltext;
+          th.id = colid;
+          th.appendChild(span);
+          trcn.appendChild(th);
+          th.addEventListener('click', () => {
+            if (ps.length > 1) {
+              qm.value = 'p';
+              qp.value = p;
+            } else {
+              qm.value = 'e';
+              qe.value = e;
+            }
+            putImgs();
+          });
+        }
+        if (isfirstcol) {
+          const tr = document.createElement('tr');
+          const th = document.createElement('th');
+          const span = document.createElement('span');
+          span.classList.add('rownames');
+          const rowid = ss.length > 1 ? `s-${s}` : `e-${e}`;
+          const rowtext = ss.length > 1 ? stext : etext;
+          span.textContent = rowtext;
+          th.id = rowid;
+          th.appendChild(span);
+          tr.appendChild(th);
+          tablern.appendChild(tr);
+          th.addEventListener('click', () => {
+            if (ss.length > 1) {
+              qm.value = 's';
+              qs.value = s;
+            } else {
+              qm.value = 'e';
+              qe.value = e;
+            }
+            putImgs();
+          });
+          isfirstcol = false;
+        }
+
+        const img = document.createElement('img');
+        const mouseovercolor = 'rgba(153, 204, 255, 0.3)';
+        img.setAttribute('src', `${s}/solo_${p}_${e}.png?${new Date().getTime()}`);
+        img.setAttribute('alt', ``);
+        img.addEventListener('mouseover', (e) => {
+          img.style['background-color'] = mouseovercolor;
+          for (const id of [`s-${s}`, `e-${e}`, `p-${p}`]) {
+            const q = document.getElementById(id);
+            if (!q) continue;
+            q.style['background-color'] = mouseovercolor;
+          }
+        });
+        img.addEventListener('mouseout', (e) => {
+          img.style['background-color'] = '#fff';
+          for (const id of [`s-${s}`, `e-${e}`, `p-${p}`]) {
+            const q = document.getElementById(id);
+            if (!q) continue;
+            q.style['background-color'] = '#fff';
+          }
+        });
+        div.appendChild(img);
+      }
+      if (ps.length > 1) {
+        div.appendChild(document.createElement('br'));
+        isfirstrow = false;
+        isfirstcol = true;
+      }
+    }
+    if (es.length > 1) {
+      div.appendChild(document.createElement('br'));
+      isfirstrow = false;
+      isfirstcol = true;
+    }
+  }
+
+  tablecn.appendChild(trcn);
+
+  setUrl();
+
+}; // putImgs
+
+
+const dragScroll = (target) => {
+
+  if (!target) return;
+
+  target.addEventListener('mousedown', (ev) => {
+    ev.preventDefault();
+    target.dataset.down = 'true';
+    target.dataset.move = 'false';
+    target.dataset.x = ev.clientX;
+    target.dataset.y = ev.clientY;
+    target.dataset.scrollLeft = target.scrollLeft;
+    target.dataset.scrollTop = target.scrollTop;
+    ev.stopPropagation();
+  });
+
+  target.addEventListener('click', (ev) => {
+    if (target.dataset !== null && target.dataset.move === 'true') ev.stopPropagation();
+  });
+
+  document.addEventListener('mousemove', (ev) => {
+
+    if (target.dataset.down === 'true') {
+
+      ev.preventDefault();
+      const move_x = Number(target.dataset.x) - ev.clientX;
+      const move_y = Number(target.dataset.y) - ev.clientY;
+      if (move_x === 0 && move_y === 0) return;
+      target.dataset.move = 'true';
+      target.scrollLeft = Number(target.dataset.scrollLeft) + move_x;
+      target.scrollTop = Number(target.dataset.scrollTop) + move_y;
+      ev.stopPropagation();
+
+    }
+
+  });
+
+  document.addEventListener('mouseup', (ev) => {
+    if (target.dataset.down === 'true') {
+      target.dataset.down = 'false';
+      ev.stopPropagation();
+    }
+  });
+
+}; // dragScroll
+
+
+const followHeaders = () => {
+  document.getElementById('images-rownames').style.left = `${document.getElementById('images-wrapper').scrollLeft}px`;
+  document.getElementById('images-colnames').style.top = `${document.getElementById('images-wrapper').scrollTop}px`;
+}; // followHeaders
+
+
+window.onload = () => {
+
+  const params = {};
+  (location.href.split('?').at(-1) || '').split('&').forEach(l => {
+    const [key, val] = l.split('=');
+    params[key] = val;
+  });
+
+  qm.value = params.m || 'p';
+  qs.value = params.s || 'server1';
+  qe.value = params.e || 'u';
+  qp.value = params.p || '24';
+  qef.value = params.ef || 'normal';
+
+  putImgs();
+
+  dragScroll(document.getElementById('images-wrapper'));
+
+  document.getElementById('form').addEventListener('submit', e => e.preventDefault());
+
+  qm.addEventListener('change', putImgs);
+  qs.addEventListener('change', putImgs);
+  qp.addEventListener('change', putImgs);
+  qe.addEventListener('change', putImgs);
+
+  qef.addEventListener('change', putImgs);
+
+  document.getElementById('images-wrapper').addEventListener('scroll', followHeaders);
+
+}; // window.onload
+</script>
+</html>
